@@ -1,4 +1,4 @@
-/* src/App.css (V6.0) */
+/* src/App.css (V7.0) */
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -219,6 +219,25 @@ button:disabled {
   border-color: var(--accent-primary);
   box-shadow: 0 0 10px var(--accent-primary);
 }
+
+/* V7.0: 釘選按鈕 */
+.pin-button {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  color: white;
+  font-size: 1.5em;
+  padding: 0.2rem 0.6rem;
+  z-index: 10;
+  border-radius: 50%;
+  line-height: 1;
+}
+.pin-button.pinned {
+  color: var(--accent-warning);
+}
+
 
 /* V6.0: 比較模式勾選框 */
 .compare-checkbox {
@@ -539,6 +558,33 @@ button:disabled {
   color: var(--accent-warning);
   margin-top: 1rem;
 }
+/* V7.0: 攤還圖表 */
+.amortization-pie-chart {
+  height: 200px;
+  width: 100%;
+}
+/* V7.0: What-If 模擬 */
+.scenario-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+.scenario-table th, .scenario-table td {
+  border: 1px solid #555;
+  padding: 0.5rem;
+  text-align: left;
+}
+.scenario-table th {
+  background: var(--bg-tertiary);
+}
+.scenario-table .original {
+  color: var(--text-secondary);
+}
+.scenario-table .new {
+  color: var(--accent-warning);
+  font-weight: bold;
+}
+
 
 /* --- V5.0: RWD --- */
 @media (max-width: 768px) {

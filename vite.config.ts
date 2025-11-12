@@ -1,4 +1,4 @@
-// vite.config.ts (V6.0)
+// vite.config.ts (V7.0)
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -9,7 +9,7 @@ export default defineConfig({
 
   plugins: [react()],
 
-  // 2. V6.0 移除 proxy：
+  // 2. V7.0 移除 proxy：
   // GitHub Pages 是靜態託管，不支援 server-side 代理。
   // API 功能將改為提示模式。
   server: {
