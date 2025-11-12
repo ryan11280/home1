@@ -1,4 +1,4 @@
-/* src/App.css (V4.0) */
+/* src/App.css (V5.0) */
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -29,6 +29,36 @@ body {
   box-sizing: border-box;
 }
 
+/* --- V5.0: 行動版漢堡選單 --- */
+.menu-toggle {
+  display: none; /* 桌機版隱藏 */
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  background: var(--bg-tertiary);
+  border: none;
+  color: white;
+  font-size: 2em;
+  padding: 0 0.5rem;
+  z-index: 2001;
+  border-radius: 8px;
+}
+
+.mobile-menu-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 1999;
+}
+.mobile-menu-overlay.open {
+  display: block;
+}
+
+
 /* --- 主要佈局 --- */
 .app-container {
   display: flex;
@@ -42,6 +72,8 @@ body {
   border-radius: 8px;
   padding: 1rem;
   flex-shrink: 0;
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .main-content {
@@ -108,6 +140,32 @@ button:hover {
 .btn-success { background-color: #3da15d; }
 
 
+/* --- 儀表板 V5.0 --- */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+.stat-card {
+  background: var(--bg-tertiary);
+  padding: 1.5rem;
+  border-radius: 8px;
+  text-align: center;
+}
+.stat-card h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-secondary);
+  font-size: 1em;
+}
+.stat-card p {
+  margin: 0;
+  font-size: 2em;
+  font-weight: bold;
+  color: var(--accent-primary);
+}
+
+
 /* --- 物件列表頁 --- */
 .list-header {
   display: flex;
@@ -143,12 +201,23 @@ button:hover {
   border-radius: 8px;
   padding: 1rem;
   border: 2px solid var(--bg-tertiary);
+  display: flex;
+  flex-direction: column;
+}
+
+.card-image {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #555;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  margin-top: 0.5rem;
 }
 
 .card-header h3 {
@@ -161,8 +230,13 @@ button:hover {
   font-size: 1.5em;
   font-weight: bold;
   color: var(--accent-primary);
+  flex-shrink: 0;
+  margin-left: 0.5rem;
 }
 
+.card-body {
+  flex-grow: 1;
+}
 .card-body p {
   margin: 0.5rem 0;
   color: var(--text-secondary);
@@ -372,4 +446,57 @@ button:hover {
 }
 .about-page a:hover {
   text-decoration: underline;
+}
+
+/* --- V5.0: RWD --- */
+@media (max-width: 768px) {
+  #root {
+    padding: 0;
+  }
+  .app-container {
+    display: block;
+    height: 100vh;
+  }
+
+  .menu-toggle {
+    display: block;
+  }
+
+  .main-nav {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 250px;
+    height: 100vh;
+    z-index: 2000;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease-in-out;
+    border-radius: 0 8px 8px 0;
+  }
+  .main-nav.open {
+    transform: translateX(0);
+  }
+
+  .main-content {
+    height: 100vh;
+    padding-top: 5rem; /* 留出漢堡選單的空間 */
+    border-radius: 0;
+  }
+
+  /* 單欄佈局 */
+  .stats-grid,
+  .property-list-grid,
+  .settings-grid,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .list-controls {
+    flex-direction: column;
+  }
+
+  .modal-content {
+    width: 95%;
+    padding: 1rem;
+  }
 }

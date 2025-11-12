@@ -1,4 +1,4 @@
-// src/App.tsx (V4.0)
+// src/App.tsx (V5.0)
 import React, { useState, useMemo, useEffect } from 'react'
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -368,9 +368,58 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<Re
 // (val - min) / (max - min)
 const normalize = (val: number, min: number, max: number, invert: boolean = false) => {
   if (max === min) return 100;
+  // 修正除以零的錯誤
+  if (max - min === 0) return 100;
   const score = 100 * (val - min) / (max - min);
   return invert ? 100 - score : score;
 }
+
+// --- V5.0: 導覽列組件 ---
+interface NavigationProps {
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+  onCloseMenu: () => void; // 用於行動版
+}
+function Navigation({ activeTab, setActiveTab, onCloseMenu }: NavigationProps) {
+  const handleNavClick = (tab: string) => {
+    setActiveTab(tab);
+    onCloseMenu();
+  };
+
+  return (
+    <nav className="main-nav">
+      <h1>房產分析儀 v5.0</h1>
+      <ul className="nav-menu">
+        <li className="nav-item">
+          <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => handleNavClick('dashboard')}>
+            儀表板
+          </button>
+        </li>
+        <li className="nav-item">
+          <button className={activeTab === 'properties' ? 'active' : ''} onClick={() => handleNavClick('properties')}>
+            物件列表
+          </button>
+        </li>
+        <li className="nav-item">
+          <button className={activeTab === 'map' ? 'active' : ''} onClick={() => handleNavClick('map')}>
+            地圖總覽
+          </button>
+        </li>
+        <li className="nav-item">
+          <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => handleNavClick('settings')}>
+            分析與設定
+          </button>
+        </li>
+        <li className="nav-item">
+          <button className={activeTab === 'about' ? 'active' : ''} onClick={() => handleNavClick('about')}>
+            說明 & 關於
+          </button>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
 
 // --- 主應用程式 APP ---
 function App() {
@@ -379,6 +428,7 @@ function App() {
   const [properties, setProperties] = useLocalStorage<Property[]>('pa-properties', sampleData);
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [isLoading, setIsLoading] = useState(false); // 用於 API 請求
+  const [isMenuOpen, setIsMenuOpen] = useState(false); // V5.0: RWD 狀態
 
   // --- 核心邏輯：計算分數 ---
   const processedData = useMemo((): ProcessedProperty[] => {
@@ -410,7 +460,7 @@ function App() {
       const loanAmount = p.price - p.downPayment;
       const monthlyMortgage = calculateMonthlyPayment(loanAmount, p.loanYears, p.interestPct);
       const monthlyTotalCost = monthlyMortgage + p.monthlyFees + p.commuteCostMonthly;
-      const pricePerPing = p.areaPing > 0 ? Math.round(p.price / p.areaPing) : 0;
+      const pricePerPing = p.areaPing > 0 ? Math.round((p.price / 10000) / p.areaPing * 10) / 10 : 0; // V5.0: 算到小數點
       const oneTimeCostTotal = Object.values(p.oneTimeCosts).reduce((a, b) => a + b, 0);
       const trueTotalCost = p.price + oneTimeCostTotal;
 
@@ -443,7 +493,7 @@ function App() {
         loanAmount,
         monthlyMortgage,
         monthlyTotalCost,
-        pricePerPing,
+        pricePerPing, // 單位：萬/坪
         oneTimeCostTotal,
         trueTotalCost,
         scores,
@@ -475,7 +525,7 @@ function App() {
     setEditingProperty({ ...NEW_PROPERTY_TEMPLATE, id: `new-${Date.now()}` });
   };
   
-  // --- API 功能：通勤分析 ---
+  // --- V5.0: 升級 API 功能：真實通勤分析 ---
   const handleAnalyzeCommute = async (property: Property) => {
     if (!settings.googleMapsApiKey) {
       alert("請先在『分析與設定』頁面貼上您的 Google Maps API 金鑰！");
@@ -488,28 +538,15 @@ function App() {
       return;
     }
     
-    // (注意：CORS)
-    // Google API 金鑰需要設定為允許 http://localhost:5173 來源的請求
-    // 且該金鑰必須啟用 Distance Matrix API
     const origin = property.address;
-    const destination = settings.destinations[0].address; // V4.0: 永遠分析第一個目的地
+    const destination = settings.destinations[0].address; // 分析第一個目的地
     const apiKey = settings.googleMapsApiKey;
     
-    // 我們使用 proxy 來繞過 CORS (Vite.config.ts 設定)
-    // 實際部署時，您需要一個後端或使用 Netlify/Vercel 的 serverless function
-    // 為了本地測試，我們假設您設定了 Vite proxy (見後續說明)
-    // 暫時，我們先用一個範例 API URL，但它在客戶端會被 CORS 阻擋
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=driving&key=${apiKey}`;
+    // V5.0: 使用 vite.config.ts 設定的代理路徑
+    const url = `/api/distancematrix?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=driving&key=${apiKey}`;
 
     setIsLoading(true);
     try {
-      // 警告：此處 fetch 可能會失敗 (CORS)
-      // 建議：使用 vite.config.ts 設置
-      // server: { proxy: { '/maps-api': { target: 'https://maps.googleapis.com', changeOrigin: true, rewrite: (path) => path.replace(/^\/maps-api/, '/maps/api') } } }
-      // 然後 fetch('/maps-api/distancematrix/json?...')
-      
-      alert(`[模擬] 正在呼叫 Google API 分析:\n從: ${origin}\n到: ${destination}\n\n(注意：若無設定後端 proxy，此請求會因 CORS 失敗)`);
-      
       const response = await fetch(url); 
       const data = await response.json();
       
@@ -520,7 +557,7 @@ function App() {
       const durationInSeconds = data.rows[0].elements[0].duration.value;
       const durationInMinutes = Math.round(durationInSeconds / 60);
       
-      alert(`分析完成：開車時間約 ${durationInMinutes} 分鐘。`);
+      alert(`[真實API] 分析完成：\n從 ${origin}\n到 ${destination}\n開車時間約 ${durationInMinutes} 分鐘。`);
       
       // 更新物件並儲存
       const updatedProperty = { ...property, commuteMinutes: durationInMinutes };
@@ -528,7 +565,7 @@ function App() {
       
     } catch (error) {
       console.error("通勤分析失敗:", error);
-      alert(`通勤分析失敗！請檢查：\n1. API 金鑰是否正確並啟用了 Distance Matrix API。\n2. (重要) 瀏覽器控制台是否顯示 CORS 錯誤。`);
+      alert(`通勤分析失敗！請檢查：\n1. API 金鑰是否正確並啟用了 Distance Matrix API。\n2. (重要) 瀏覽器控制台是否顯示 CORS 錯誤 (若未正確設定 proxy)。\n3. Google Cloud 是否設定了 HTTP 來源限制。`);
     }
     setIsLoading(false);
   };
@@ -537,7 +574,7 @@ function App() {
   const renderActiveTab = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView properties={processedData.slice(0, 5)} />; // 只取前5名
+        return <DashboardView properties={processedData.slice(0, 5)} />;
       case 'properties':
         return <PropertiesListView
           properties={processedData}
@@ -557,7 +594,6 @@ function App() {
                   properties={properties}
                   onImport={setProperties}
                 />;
-      // V4.0: 新增 "About" 頁面
       case 'about':
         return <AboutView />;
       default:
@@ -567,39 +603,25 @@ function App() {
 
   return (
     <div className="app-container">
-      <nav className="main-nav">
-        <h1>房產分析儀 v4.0</h1>
-        <ul className="nav-menu">
-          <li className="nav-item">
-            <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>
-              儀表板
-            </button>
-          </li>
-          <li className="nav-item">
-            <button className={activeTab === 'properties' ? 'active' : ''} onClick={() => setActiveTab('properties')}>
-              物件列表
-            </button>
-          </li>
-          <li className="nav-item">
-            <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}>
-              地圖總覽
-            </button>
-          </li>
-          <li className="nav-item">
-            <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>
-              分析與設定
-            </button>
-          </li>
-          {/* V4.0: 新增 "About" 頁籤 */}
-          <li className="nav-item">
-            <button className={activeTab === 'about' ? 'active' : ''} onClick={() => setActiveTab('about')}>
-              說明 & 關於
-            </button>
-          </li>
-        </ul>
-      </nav>
+      {/* V5.0: RWD 遮罩與選單 */}
+      <div 
+        className={`mobile-menu-overlay ${isMenuOpen ? 'open' : ''}`}
+        onClick={() => setIsMenuOpen(false)}
+      ></div>
+      <div className={`main-nav ${isMenuOpen ? 'open' : ''}`}>
+        <Navigation 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab} 
+          onCloseMenu={() => setIsMenuOpen(false)}
+        />
+      </div>
 
       <main className="main-content">
+        {/* V5.0: RWD 漢堡選單按鈕 */}
+        <button className="menu-toggle" onClick={() => setIsMenuOpen(true)}>
+          ☰
+        </button>
+
         {isLoading && <div style={{ color: 'yellow', fontWeight: 'bold' }}>[Google API 請求中...]</div>}
         {renderActiveTab()}
       </main>
@@ -618,9 +640,23 @@ function App() {
   );
 }
 
-// --- 子組件：儀表板 (V3.0) ---
+// --- 子組件：儀表板 (V5.0 已升級) ---
 function DashboardView({ properties }: { properties: ProcessedProperty[] }) {
-  // V3.0: 顯示各項偏好分數，而不只是總分
+  // V5.0: 儀表板統計
+  const stats = useMemo(() => {
+    if (properties.length === 0) {
+      return { count: 0, avgPrice: 0, maxScore: 0 };
+    }
+    const avgPrice = properties.reduce((acc, p) => acc + p.price, 0) / properties.length;
+    const maxScore = Math.max(...properties.map(p => p.totalScore));
+    return {
+      count: properties.length,
+      avgPrice: Math.round(avgPrice / 10000), // 萬
+      maxScore: maxScore,
+    };
+  }, [properties]);
+
+  // V3.0: 顯示各項偏好分數
   const radarData = properties.map(p => ({
     subject: p.title.length > 10 ? p.title.substring(0, 10) + '...' : p.title,
     Cost: p.scores.cost,
@@ -632,8 +668,25 @@ function DashboardView({ properties }: { properties: ProcessedProperty[] }) {
 
   return (
     <div>
-      <h2>儀表板 (Top 5 推薦物件)</h2>
-      <p>此雷達圖顯示**各項偏好分數** (0-100分，越高越好)。</p>
+      <h2>儀表板</h2>
+
+      {/* V5.0: 統計數據 */}
+      <div className="stats-grid">
+        <div className="stat-card">
+          <h4>總物件數</h4>
+          <p>{stats.count}</p>
+        </div>
+        <div className="stat-card">
+          <h4>平均總價 (萬)</h4>
+          <p>{stats.avgPrice.toLocaleString()}</p>
+        </div>
+        <div className="stat-card">
+          <h4>最高推薦分</h4>
+          <p>{stats.maxScore}</p>
+        </div>
+      </div>
+      
+      <p>此雷達圖顯示 Top 5 物件的**各項偏好分數** (0-100分，越高越好)。</p>
       <div style={{ width: '100%', height: 400 }}>
         <ResponsiveContainer>
           <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
@@ -653,7 +706,7 @@ function DashboardView({ properties }: { properties: ProcessedProperty[] }) {
   );
 }
 
-// --- 子組件：物件列表 (V3.0) ---
+// --- 子組件：物件列表 (V5.0 已升級) ---
 function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeCommute, settings, isLoading }: {
   properties: ProcessedProperty[],
   onAdd: () => void,
@@ -703,20 +756,20 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
         {filteredProperties.map(p => (
           <div key={p.id} className="property-card">
             {/* V3.0: 顯示照片 */}
-            {p.photoUrls[0] && (
-              <img 
-                src={p.photoUrls[0]} 
-                alt={p.title} 
-                style={{ width: '100%', height: '200px', objectFit: 'cover', borderRadius: '4px' }}
-                onError={(e) => (e.currentTarget.style.display = 'none')} // 如果照片URL失效
-              />
-            )}
-            <div className="card-header" style={{ marginTop: '0.5rem' }}>
+            <img 
+              src={p.photoUrls[0] || 'https://via.placeholder.com/400x300.png?text=No+Image'} // 預設圖
+              alt={p.title} 
+              className="card-image"
+              onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/400x300.png?text=Image+Error')} // 如果照片URL失效
+            />
+            <div className="card-header">
               <h3>{p.title}</h3>
               <div className="card-score" title="綜合推薦分">{p.totalScore}</div>
             </div>
             <div className="card-body">
               <p>總價: <strong>${p.price.toLocaleString()}</strong></p>
+              {/* V5.0: 顯示單價 */}
+              <p>單價: <strong>{p.pricePerPing.toLocaleString()} 萬/坪</strong></p>
               <p>總月付: <strong>${p.monthlyTotalCost.toLocaleString()}</strong></p>
               <p>通勤: <strong>{p.commuteMinutes} 分鐘</strong> | 坪數: <strong>{p.areaPing} 坪</strong></p>
               <div className="card-tags">
@@ -730,7 +783,7 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
                 onClick={() => onAnalyzeCommute(p)}
                 disabled={isLoading}
               >
-                分析通勤
+                {isLoading ? '分析中...' : '分析通勤'}
               </button>
               <button className="btn-secondary" onClick={() => onEdit(p)} disabled={isLoading}>編輯</button>
               <button className="btn-danger" onClick={() => onDelete(p.id)} disabled={isLoading}>刪除</button>
@@ -774,7 +827,7 @@ function MapView({ properties }: { properties: ProcessedProperty[] }) {
   );
 }
 
-// --- 子組件：分析與設定 (V4.0 已升級) ---
+// --- 子組件：分析與設定 (V4.0) ---
 function SettingsView({ settings, onSave, properties, onImport }: {
   settings: Settings,
   onSave: (settings: Settings) => void,
@@ -961,7 +1014,7 @@ function SettingsView({ settings, onSave, properties, onImport }: {
   );
 }
 
-// --- 子組件：物件編輯/新增 Modal (V3.0) ---
+// --- 子組件：物件編輯/新增 Modal (V5.0 已升級) ---
 function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
   property: Property,
   onClose: () => void,
@@ -995,7 +1048,7 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
     setForm(prev => ({ ...prev, [field]: list }));
   };
   
-  // V3.0: 地址自動定位
+  // V5.0: 升級 API 功能：真實自動定位
   const handleGeocode = async () => {
     if (!apiKey) {
       alert("請先在『分析與設定』頁面貼上您的 Google Maps API 金鑰！");
@@ -1006,8 +1059,8 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
       return;
     }
     
-    // 同樣，這裡假設 API Key 已設定 client-side 存取或 proxy
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(form.address)}&key=${apiKey}`;
+    // V5.0: 使用 vite.config.ts 設定的代理路徑
+    const url = `/api/geocode?address=${encodeURIComponent(form.address)}&key=${apiKey}`;
     onGeocode(true);
     try {
       const response = await fetch(url);
@@ -1019,7 +1072,7 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
       
       const { lat, lng } = data.results[0].geometry.location;
       setForm(prev => ({ ...prev, lat: lat, lon: lng }));
-      alert("定位成功！");
+      alert("[真實API] 定位成功！");
       
     } catch (error) {
        console.error("定位失敗:", error);
@@ -1048,7 +1101,7 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
                 <label>地址</label>
                 <input type="text" name="address" value={form.address} onChange={handleChange} />
                 <button type="button" className="btn-secondary" onClick={handleGeocode} style={{ marginTop: '0.5rem' }}>
-                  自動定位 (V3.0)
+                  自動定位
                 </button>
               </div>
               <div className="form-group">
@@ -1162,26 +1215,26 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
 // (內嵌 README 內容)
 
 const readmeContent = `
-# 房產決策分析儀 (Property Decision Assistant) v4.0
+# 房產決策分析儀 (Property Decision Assistant) v5.0
 
 這是一個使用 React + Vite + TypeScript 建置的個人化房產決策分析工具。
 
 它協助使用者輸入、管理和比較多個待選房產物件，並根據**可自訂權重**（通勤、成本、空間、屋齡）為每個物件計算「綜合推薦分數」，幫助使用者在看房過程中做出更理性的決策。
 
-## 🚀 核心功能 (Features)
+## 🚀 核心功能 (V5.0)
 
-* **智慧評分系統 (Smart Scoring)**：在「分析與設定」頁面，您可以透過拉桿自訂您對「月負擔」、「通勤時間」、「空間坪數」和「屋齡」的偏好權重。
-* **即時分數排序**：物件列表會根據您的權重即時計算「綜合推薦分」，讓您一目了然哪個物件最符合您的需求。
-* **多頁面儀表板 (Dashboard)**：
+* **行動版 RWD 優化 (V5.0)**：在行動裝置上，左側選單會自動隱藏，並可透過「漢堡選單」叫出，大幅提升手機瀏覽體驗。
+* **真實 API 串接 (V5.0)**：不再是模擬！透過 Vite 代理伺服器，現在「通勤分析」和「自動定位」功能已可**真實串接 Google Maps API**。
+* **儀表板升級 (V5.0)**：新增「總物件數」、「平均總價」、「最高推薦分」等關鍵數據卡。
+* **列表顯示單價 (V5.0)**：物件卡片上現在會顯示「萬/坪」，方便快速比較。
+* **智慧評分系統**：在「分析與設定」頁面，您可以透過拉桿自訂您對「月負擔」、「通勤時間」、「空間坪數」和「屋齡」的偏好權重。
+* **即時分數排序**：物件列表會根據您的權重即時計算「綜合推薦分」。
+* **多頁面儀表板**：
     * **儀表板**：使用雷達圖，視覺化比較 Top 5 物件的**各項偏好得分**。
     * **物件列表**：核心 CRUD 介面，支援卡片式預覽、搜尋、排序。
     * **地圖總覽**：在 Leaflet 地圖上顯示所有物件的地理位置（使用紅色圖釘標記）。
     * **分析與設定**：設定權重、目的地和 API 金鑰。
 * **可變動的目的地 (V4.0)**：您現在可以自由新增/刪除多個通勤目的地。
-* **Google Maps API 整合 (V3.0)**：
-    * **通勤分析**：自動計算物件到您「第一個目的地」的**開車時間** (需 API Key)。
-    * **自動定位**：在編輯表單時，可根據地址自動抓取經緯度 (需 API Key)。
-* **進階財務估算**：除了房貸，還可輸入仲介費、裝潢款等「一次性成本」，計算出「真實購屋總成本」。
 * **資料本地儲存**：所有資料都會儲存在您的瀏覽器 \`localStorage\` 中。
 * **備份與還原 (V3.0)**：支援將所有資料匯出為 \`JSON\` 檔案備份，或從備份檔匯入。
 * **視覺化輔助**：支援照片連結預覽、自訂標籤 (Tags) 功能。
@@ -1204,11 +1257,11 @@ const readmeContent = `
     cd YOUR_REPO_NAME
     \`\`\`
 
-2.  **安裝依賴**
+2.  **安裝/更新 依賴**
+    (如果您是從舊版本升級，建議先清除快取)
     \`\`\`bash
+    rm -rf node_modules package-lock.json
     npm install
-    # V4.0 新增
-    npm install react-markdown remark-gfm
     \`\`\`
 
 3.  **啟動本地伺服器**
@@ -1217,7 +1270,7 @@ const readmeContent = `
     \`\`\`
     應用程式將會運行在 \`http://localhost:5173\`。
 
-## 🔑 Google Maps API 金鑰設定 (重要)
+## 🔑 Google Maps API 金鑰設定 (V5.0 必備)
 
 本專案的「通勤分析」與「自動定位」功能依賴 Google Maps API。
 
@@ -1226,7 +1279,7 @@ const readmeContent = `
     * **Geocoding API** (用於地址轉經緯度)
     * **Distance Matrix API** (用於計算通勤時間)
     * **Maps JavaScript API** (如果您未來需要嵌入 Google Map)
-3.  (建議) 為了安全，請在金鑰設定中限制 HTTP 來源，僅允許您的網域 (例如 \`localhost:5173\` 和您未來部署的 GitHub Pages 網址)。
+3.  **(重要)** 為了安全，請在金鑰設定中限制 HTTP 來源，**僅允許您的本地 (`localhost:5173`) 和您未來部署的 GitHub Pages 網址**。
 4.  將您取得的 API 金鑰，複製並貼到應用程式的「分析與設定」頁面中的「Google Maps API 金鑰」欄位並儲存。
 
 ## 🚀 部署到 GitHub Pages
@@ -1245,6 +1298,7 @@ const readmeContent = `
       // 這裡就要填 '/property-assistant/'
       base: '/YOUR_REPO_NAME/', 
       plugins: [react()],
+      // ... server.proxy 設定 ...
     })
     \`\`\`
 
@@ -1266,10 +1320,7 @@ const readmeContent = `
       "deploy": "gh-pages -d dist"
     },
     \`\`\`
-
 4.  **執行部署**
-    
-    此指令會自動打包 (build) 並將 \`dist\` 資料夾推送到 \`gh-pages\` 分支。
     
     \`\`\`bash
     npm run deploy
@@ -1277,11 +1328,9 @@ const readmeContent = `
 
 5.  **設定 GitHub 儲存庫**
     
-    * 前往您的 GitHub 儲存庫頁面。
-    * 點擊 **Settings** (設定)。
-    * 在左側選擇 **Pages** (頁面)。
-    * 在 "Build and deployment" 下的 **Source** (來源)，選擇 **Deploy from a branch**。
-    * 在 "Branch" (分支) 下拉選單中，選擇 \`gh-pages\` 分支，資料夾選擇 \`/(root)\`，然後點擊 **Save**。
+    * 前往您的 GitHub 儲存庫頁面 -> **Settings** -> **Pages**。
+    * **Source**: 選擇 **Deploy from a branch**。
+    * **Branch**: 選擇 \`gh-pages\` 分支，資料夾 \`/(root)\`，點擊 **Save**。
 
 等待幾分鐘後，您的網站就會上線！
 `;
