@@ -1,4 +1,4 @@
-// vite.config.ts (V5.0)
+// vite.config.ts (V6.0)
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -9,21 +9,10 @@ export default defineConfig({
 
   plugins: [react()],
 
-  // 2. V5.0 新增：設定 API 代理
+  // 2. V6.0 移除 proxy：
+  // GitHub Pages 是靜態託管，不支援 server-side 代理。
+  // API 功能將改為提示模式。
   server: {
-    proxy: {
-      // 將 /api/geocode 請求轉發到 Google Geocoding API
-      '/api/geocode': {
-        target: 'https://maps.googleapis.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/geocode/, '/maps/api/geocode/json'),
-      },
-      // 將 /api/distancematrix 請求轉發到 Google Distance Matrix API
-      '/api/distancematrix': {
-        target: 'https://maps.googleapis.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/distancematrix/, '/maps/api/distancematrix/json'),
-      },
-    }
+    proxy: {} // 保持為空
   }
 })

@@ -1,4 +1,4 @@
-// src/App.tsx (V5.1 - 修正版)
+// src/App.tsx (V6.0)
 import React, { useState, useMemo, useEffect } from 'react'
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -6,15 +6,12 @@ import {
 } from 'recharts'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
-// V4.0: 匯入 Markdown 渲染器
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-// V5.1: 修正錯誤，直接匯入 README.md 檔案內容
-import readmeContent from '../README.md?raw'
+import readmeContent from '../README.md?raw' // V5.1 修正
 
 
 // --- Leaflet 圖示修正 ---
-// (使用您想要的紅色圖釘)
 const redIcon = L.icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
@@ -23,7 +20,6 @@ const redIcon = L.icon({
   popupAnchor: [1, -34],
   shadowSize: [41, 41]
 });
-// (修正預設圖示路徑問題)
 import iconRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png'
 import iconUrl from 'leaflet/dist/images/marker-icon.png'
 import shadowUrl from 'leaflet/dist/images/marker-shadow.png'
@@ -34,9 +30,10 @@ L.Icon.Default.mergeOptions({
 });
 // --- 圖示修正結束 ---
 
-// --- 資料結構定義 ---
+// --- 資料結構定義 (V6.0) ---
 
 type PropertyTag = string;
+type PropertyStatus = 'pending' | 'viewing' | 'negotiating' | 'rejected' | 'purchased'; // V6.0 新增
 
 interface OneTimeCosts {
   brokerFee: number;
@@ -61,10 +58,12 @@ interface Property {
   lon: number;
   notes: string;
   tags: PropertyTag[];
-  photoUrls: string[]; // 改為 string[]
+  photoUrls: string[];
   oneTimeCosts: OneTimeCosts;
-  commuteMinutes: number; // 主要通勤時間 (會被 API 覆蓋)
-  commuteCostMonthly: number; // 主要通勤月費
+  commuteMinutes: number;
+  commuteCostMonthly: number;
+  status: PropertyStatus; // V6.0 新增
+  visitDate: string; // V6.0 新增 (YYYY-MM-DD)
 }
 
 interface Destination {
@@ -81,17 +80,16 @@ interface Weights {
 }
 
 interface Settings {
-  googleMapsApiKey: string;
+  googleMapsApiKey: string; // V6.0: 僅在本地開發時有用
   destinations: Destination[];
   weights: Weights;
 }
 
-// 擴充：包含正規化分數的房產資料
 type ProcessedProperty = Property & {
   loanAmount: number;
   monthlyMortgage: number;
   monthlyTotalCost: number;
-  pricePerPing: number;
+  pricePerPing: number; // 萬/坪
   oneTimeCostTotal: number;
   trueTotalCost: number;
   scores: {
@@ -103,7 +101,7 @@ type ProcessedProperty = Property & {
   totalScore: number; // 最終加權總分
 };
 
-// --- 預設資料 ---
+// --- 預設資料 (V6.0) ---
 
 const DEFAULT_SETTINGS: Settings = {
   googleMapsApiKey: "",
@@ -118,7 +116,6 @@ const DEFAULT_SETTINGS: Settings = {
   }
 };
 
-// V3.0: 已寫死 6 筆資料
 const sampleData: Property[] = [
   {
     "id": "ryan-yl-01",
@@ -137,18 +134,11 @@ const sampleData: Property[] = [
     "lat": 24.686,
     "lon": 121.784,
     "notes": "格局方正，使用空間大。7年前全屋翻修過。\n加分：空間大、可直接入住、採光佳、基本生活機能算完善。\n猶豫：屋齡高、自備款較高、需早起通勤。",
-    "tags": [
-      "透天",
-      "宜蘭",
-      "屋齡高"
-    ],
+    "tags": [ "透天", "宜蘭", "屋齡高" ],
     "photoUrls": [],
-    "oneTimeCosts": {
-      "brokerFee": 0,
-      "deedTax": 100000,
-      "adminFee": 50000,
-      "renovation": 0
-    }
+    "oneTimeCosts": { "brokerFee": 0, "deedTax": 100000, "adminFee": 50000, "renovation": 0 },
+    "status": "viewing",
+    "visitDate": "2025-11-08"
   },
   {
     "id": "ryan-ty-01",
@@ -167,21 +157,11 @@ const sampleData: Property[] = [
     "lat": 25.044,
     "lon": 121.392,
     "notes": "屋主有客變，動線規劃滿用心。窗戶面西。\n加分：生活機能完善、通勤方便、電動車友善、後續增值可能性佳。\n猶豫：預售屋轉約自備款較高，資金必須很充足。",
-    "tags": [
-      "預售屋",
-      "A7",
-      "近捷運",
-      "電動車友善"
-    ],
-    "photoUrls": [
-      "https://price.houseprice.tw/dealcase/8663932/"
-    ],
-    "oneTimeCosts": {
-      "brokerFee": 0,
-      "deedTax": 120000,
-      "adminFee": 50000,
-      "renovation": 300000
-    }
+    "tags": [ "預售屋", "A7", "近捷運", "電動車友善" ],
+    "photoUrls": [ "https://price.houseprice.tw/dealcase/8663932/" ],
+    "oneTimeCosts": { "brokerFee": 0, "deedTax": 120000, "adminFee": 50000, "renovation": 300000 },
+    "status": "rejected",
+    "visitDate": "2025-11-06"
   },
   {
     "id": "ryan-ty-02",
@@ -200,20 +180,11 @@ const sampleData: Property[] = [
     "lat": 25.044,
     "lon": 121.392,
     "notes": "僅一房，空間動線壅擠狹小。低樓層未來恐會遭遮擋。\n加分：繳納款項相對能負擔。\n猶豫：一房空間狹小，車位偏小，事務所用途又較複雜。",
-    "tags": [
-      "預售屋",
-      "A7",
-      "事務所"
-    ],
-    "photoUrls": [
-      "https://community.houseprice.tw/building/165034/doorplate"
-    ],
-    "oneTimeCosts": {
-      "brokerFee": 0,
-      "deedTax": 80000,
-      "adminFee": 50000,
-      "renovation": 100000
-    }
+    "tags": [ "預售屋", "A7", "事務所" ],
+    "photoUrls": [ "https://community.houseprice.tw/building/165034/doorplate" ],
+    "oneTimeCosts": { "brokerFee": 0, "deedTax": 80000, "adminFee": 50000, "renovation": 100000 },
+    "status": "pending",
+    "visitDate": "2025-11-10"
   },
   {
     "id": "leju-yl-01",
@@ -232,18 +203,11 @@ const sampleData: Property[] = [
     "lat": 24.757,
     "lon": 121.77,
     "notes": "新成屋。公設比 22％。RC構造。建設公司：新家源建設。",
-    "tags": [
-      "新成屋",
-      "宜蘭",
-      "壯圍鄉"
-    ],
+    "tags": [ "新成屋", "宜蘭", "壯圍鄉" ],
     "photoUrls": [],
-    "oneTimeCosts": {
-      "brokerFee": 0,
-      "deedTax": 80000,
-      "adminFee": 50000,
-      "renovation": 200000
-    }
+    "oneTimeCosts": { "brokerFee": 0, "deedTax": 80000, "adminFee": 50000, "renovation": 200000 },
+    "status": "pending",
+    "visitDate": ""
   },
   {
     "id": "591-ty-01",
@@ -262,18 +226,11 @@ const sampleData: Property[] = [
     "lat": 24.968,
     "lon": 121.104,
     "notes": "預售屋 (2026年Q1完工)。電梯公寓。低公設 23.77%。建設：堡居建設有限公司。",
-    "tags": [
-      "預售屋",
-      "新屋區",
-      "低公設"
-    ],
+    "tags": [ "預售屋", "新屋區", "低公設" ],
     "photoUrls": [],
-    "oneTimeCosts": {
-      "brokerFee": 0,
-      "deedTax": 80000,
-      "adminFee": 50000,
-      "renovation": 200000
-    }
+    "oneTimeCosts": { "brokerFee": 0, "deedTax": 80000, "adminFee": 50000, "renovation": 200000 },
+    "status": "pending",
+    "visitDate": ""
   },
   {
     "id": "591-ty-02",
@@ -292,18 +249,11 @@ const sampleData: Property[] = [
     "lat": 24.95,
     "lon": 121.3,
     "notes": "預售屋 (2029年上半年完工)。華廈。公設比 33%。建設：海喬建設股份有限公司。",
-    "tags": [
-      "預售屋",
-      "八德區",
-      "近公園"
-    ],
+    "tags": [ "預售屋", "八德區", "近公園" ],
     "photoUrls": [],
-    "oneTimeCosts": {
-      "brokerFee": 0,
-      "deedTax": 100000,
-      "adminFee": 50000,
-      "renovation": 200000
-    }
+    "oneTimeCosts": { "brokerFee": 0, "deedTax": 100000, "adminFee": 50000, "renovation": 200000 },
+    "status": "pending",
+    "visitDate": ""
   }
 ];
 
@@ -326,7 +276,9 @@ const NEW_PROPERTY_TEMPLATE: Property = {
   notes: "",
   tags: [],
   photoUrls: [],
-  oneTimeCosts: { brokerFee: 150000, deedTax: 100000, adminFee: 50000, renovation: 500000 }
+  oneTimeCosts: { brokerFee: 150000, deedTax: 100000, adminFee: 50000, renovation: 500000 },
+  status: "pending",
+  visitDate: ""
 };
 
 // --- 財務計算 ---
@@ -367,11 +319,8 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, React.Dispatch<Re
 }
 
 // --- 正規化 (0-100) ---
-// (val - min) / (max - min)
 const normalize = (val: number, min: number, max: number, invert: boolean = false) => {
   if (max === min) return 100;
-  // 修正除以零的錯誤
-  if (max - min === 0) return 100;
   const score = 100 * (val - min) / (max - min);
   return invert ? 100 - score : score;
 }
@@ -390,7 +339,7 @@ function Navigation({ activeTab, setActiveTab, onCloseMenu }: NavigationProps) {
 
   return (
     <nav className="main-nav">
-      <h1>房產分析儀 v5.0</h1>
+      <h1>房產分析儀 v6.0</h1>
       <ul className="nav-menu">
         <li className="nav-item">
           <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => handleNavClick('dashboard')}>
@@ -405,6 +354,12 @@ function Navigation({ activeTab, setActiveTab, onCloseMenu }: NavigationProps) {
         <li className="nav-item">
           <button className={activeTab === 'map' ? 'active' : ''} onClick={() => handleNavClick('map')}>
             地圖總覽
+          </button>
+        </li>
+        {/* V6.0: 新工具頁 */}
+        <li className="nav-item">
+          <button className={activeTab === 'tools' ? 'active' : ''} onClick={() => handleNavClick('tools')}>
+            工具 & 資訊
           </button>
         </li>
         <li className="nav-item">
@@ -429,8 +384,10 @@ function App() {
   const [settings, setSettings] = useLocalStorage<Settings>('pa-settings', DEFAULT_SETTINGS);
   const [properties, setProperties] = useLocalStorage<Property[]>('pa-properties', sampleData);
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
-  const [isLoading, setIsLoading] = useState(false); // 用於 API 請求
-  const [isMenuOpen, setIsMenuOpen] = useState(false); // V5.0: RWD 狀態
+  const [isLoading, setIsLoading] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [compareList, setCompareList] = useState<Set<string>>(new Set()); // V6.0
+  const [isCompareModalOpen, setIsCompareModalOpen] = useState(false); // V6.0
 
   // --- 核心邏輯：計算分數 ---
   const processedData = useMemo((): ProcessedProperty[] => {
@@ -466,7 +423,6 @@ function App() {
       const oneTimeCostTotal = Object.values(p.oneTimeCosts).reduce((a, b) => a + b, 0);
       const trueTotalCost = p.price + oneTimeCostTotal;
 
-      // 正規化 (0-100分)。成本/通勤/屋齡越低越好(invert=true)，坪數越大越好
       const normCost = normalize(monthlyTotalCost, minCost, maxCost, true);
       const normCommute = normalize(p.commuteMinutes, minCommute, maxCommute, true);
       const normSize = normalize(p.areaPing, minSize, maxSize, false);
@@ -520,6 +476,11 @@ function App() {
   const handleDeleteProperty = (id: string) => {
     if (window.confirm("確定要刪除這個物件嗎？")) {
       setProperties(prev => prev.filter(p => p.id !== id));
+      setCompareList(prev => {
+        const newList = new Set(prev);
+        newList.delete(id);
+        return newList;
+      });
     }
   };
 
@@ -527,72 +488,46 @@ function App() {
     setEditingProperty({ ...NEW_PROPERTY_TEMPLATE, id: `new-${Date.now()}` });
   };
   
-  // --- V5.0: 升級 API 功能：真實通勤分析 ---
+  // V6.0: API 功能改為提示模式 (因為 GH Pages 不支援 Proxy)
   const handleAnalyzeCommute = async (property: Property) => {
-    if (!settings.googleMapsApiKey) {
-      alert("請先在『分析與設定』頁面貼上您的 Google Maps API 金鑰！");
-      setActiveTab('settings');
-      return;
-    }
-    if (settings.destinations.length === 0) {
-      alert("請先在『分析與設定』頁面新增至少一個目的地 (例如：公司)！");
-      setActiveTab('settings');
-      return;
-    }
-    
-    const origin = property.address;
-    const destination = settings.destinations[0].address; // 分析第一個目的地
-    const apiKey = settings.googleMapsApiKey;
-    
-    // V5.0: 使用 vite.config.ts 設定的代理路徑
-    const url = `/api/distancematrix?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&mode=driving&key=${apiKey}`;
-
+    alert(`[功能限制說明]\n\n此功能 (通勤分析) 需要串接 Google Maps API。\n\n由於 GitHub Pages 靜態網站的 CORS 安全限制，此功能無法在線上版運作。\n\n您可以在本機下載專案，並在 vite.config.ts 中設定 'server.proxy' 來啟用此功能進行本地測試。`);
+    // 原始碼保留，但註解掉
+    /*
+    if (!settings.googleMapsApiKey) { ... }
+    const url = `/api/distancematrix?...`;
     setIsLoading(true);
-    try {
-      const response = await fetch(url); 
-      const data = await response.json();
-      
-      if (data.status !== 'OK' || !data.rows[0].elements[0].duration) {
-        throw new Error(data.error_message || data.status);
-      }
-      
-      const durationInSeconds = data.rows[0].elements[0].duration.value;
-      const durationInMinutes = Math.round(durationInSeconds / 60);
-      
-      alert(`[真實API] 分析完成：\n從 ${origin}\n到 ${destination}\n開車時間約 ${durationInMinutes} 分鐘。`);
-      
-      // 更新物件並儲存
-      const updatedProperty = { ...property, commuteMinutes: durationInMinutes };
-      handleSaveProperty(updatedProperty);
-      
-    } catch (error) {
-      console.error("通勤分析失敗:", error);
-      alert(`通勤分析失敗！請檢查：\n1. API 金鑰是否正確並啟用了 Distance Matrix API。\n2. (重要) 瀏覽器控制台是否顯示 CORS 錯誤 (若未正確設定 proxy)。\n3. Google Cloud 是否設定了 HTTP 來源限制。`);
-    }
-    setIsLoading(false);
+    try { ... }
+    */
   };
   
-  // --- 渲染主要頁面 ---
+  // V6.0: 渲染主要頁面
   const renderActiveTab = () => {
+    const compareProperties = processedData.filter(p => compareList.has(p.id));
+
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView properties={processedData.slice(0, 5)} />;
+        return <DashboardView properties={processedData.sort((a,b) => b.totalScore - a.totalScore).slice(0, 5)} />;
       case 'properties':
         return <PropertiesListView
           properties={processedData}
           onAdd={handleStartAdd}
           onEdit={setEditingProperty}
           onDelete={handleDeleteProperty}
-          settings={settings}
           onAnalyzeCommute={handleAnalyzeCommute}
           isLoading={isLoading}
+          compareList={compareList}
+          setCompareList={setCompareList}
+          onOpenCompare={() => setIsCompareModalOpen(true)}
         />;
       case 'map':
         return <MapView properties={processedData} />;
+      // V6.0: 新增工具頁
+      case 'tools':
+        return <ToolsInfoView />;
       case 'settings':
         return <SettingsView 
                   settings={settings} 
-                  onSave={setSettings} 
+                  onSave={setSettings} // V6.0: 此 onSave 現在會即時觸發
                   properties={properties}
                   onImport={setProperties}
                 />;
@@ -624,11 +559,11 @@ function App() {
           ☰
         </button>
 
-        {isLoading && <div style={{ color: 'yellow', fontWeight: 'bold' }}>[Google API 請求中...]</div>}
+        {isLoading && <div style={{ color: 'yellow', fontWeight: 'bold' }}>[API 請求中...]</div>}
         {renderActiveTab()}
       </main>
       
-      {/* --- 物件編輯/新增的彈出視窗 --- */}
+      {/* --- 彈出式視窗 --- */}
       {editingProperty && (
         <PropertyFormModal
           property={editingProperty}
@@ -638,41 +573,58 @@ function App() {
           onGeocode={setIsLoading}
         />
       )}
+      {/* V6.0: 比較視窗 */}
+      {isCompareModalOpen && (
+        <CompareModal
+          properties={processedData.filter(p => compareList.has(p.id))}
+          onClose={() => setIsCompareModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
-// --- 子組件：儀表板 (V5.0 已升級) ---
+// --- 子組件：儀表板 (V6.0 已修正) ---
 function DashboardView({ properties }: { properties: ProcessedProperty[] }) {
-  // V5.0: 儀表板統計
+  // V6.0: 儀表板統計
   const stats = useMemo(() => {
     if (properties.length === 0) {
-      return { count: 0, avgPrice: 0, maxScore: 0 };
+      return { count: 0, avgPrice: 0, maxScore: 0, avgTrueCost: 0 };
     }
     const avgPrice = properties.reduce((acc, p) => acc + p.price, 0) / properties.length;
+    const avgTrueCost = properties.reduce((acc, p) => acc + p.trueTotalCost, 0) / properties.length;
     const maxScore = Math.max(...properties.map(p => p.totalScore));
     return {
       count: properties.length,
       avgPrice: Math.round(avgPrice / 10000), // 萬
+      avgTrueCost: Math.round(avgTrueCost / 10000), // 萬
       maxScore: maxScore,
     };
   }, [properties]);
 
-  // V3.0: 顯示各項偏好分數
-  const radarData = properties.map(p => ({
-    subject: p.title.length > 10 ? p.title.substring(0, 10) + '...' : p.title,
-    Cost: p.scores.cost,
-    Commute: p.scores.commute,
-    Size: p.scores.size,
-    Age: p.scores.age,
-    fullMark: 100,
-  }));
+  // V6.0: 修正雷達圖資料結構
+  const radarData = useMemo(() => {
+    const categories = ['Cost', 'Commute', 'Size', 'Age'];
+    // 轉置資料：從 [{prop: 'A', Cost: 90}, {prop: 'B', Cost: 80}]
+    // 轉為  [{category: 'Cost', A: 90, B: 80}]
+    return categories.map(category => {
+      const entry: any = { category };
+      properties.forEach(p => {
+        // 縮短標題
+        const title = p.title.length > 10 ? p.title.substring(0, 10) + '...' : p.title;
+        entry[title] = p.scores[category.toLowerCase() as keyof ProcessedProperty['scores']];
+      });
+      return entry;
+    });
+  }, [properties]);
+  
+  const radarColors = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#83a6ed'];
 
   return (
     <div>
       <h2>儀表板</h2>
 
-      {/* V5.0: 統計數據 */}
+      {/* V6.0: 統計數據 */}
       <div className="stats-grid">
         <div className="stat-card">
           <h4>總物件數</h4>
@@ -681,6 +633,10 @@ function DashboardView({ properties }: { properties: ProcessedProperty[] }) {
         <div className="stat-card">
           <h4>平均總價 (萬)</h4>
           <p>{stats.avgPrice.toLocaleString()}</p>
+        </div>
+         <div className="stat-card">
+          <h4>平均真實成本 (萬)</h4>
+          <p>{stats.avgTrueCost.toLocaleString()}</p>
         </div>
         <div className="stat-card">
           <h4>最高推薦分</h4>
@@ -693,12 +649,18 @@ function DashboardView({ properties }: { properties: ProcessedProperty[] }) {
         <ResponsiveContainer>
           <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
             <PolarGrid />
-            <PolarAngleAxis dataKey="subject" />
+            <PolarAngleAxis dataKey="category" />
             <PolarRadiusAxis angle={30} domain={[0, 100]} />
-            <Radar name="成本" dataKey="Cost" stroke="#8884d8" fill="#8884d8" fillOpacity={0.6} />
-            <Radar name="通勤" dataKey="Commute" stroke="#82ca9d" fill="#82ca9d" fillOpacity={0.6} />
-            <Radar name="坪數" dataKey="Size" stroke="#ffc658" fill="#ffc658" fillOpacity={0.6} />
-            <Radar name="屋齡" dataKey="Age" stroke="#ff8042" fill="#ff8042" fillOpacity={0.6} />
+            {properties.map((p, index) => (
+              <Radar 
+                key={p.id} 
+                name={p.title.length > 10 ? p.title.substring(0, 10) + '...' : p.title} 
+                dataKey={p.title.length > 10 ? p.title.substring(0, 10) + '...' : p.title} 
+                stroke={radarColors[index % radarColors.length]} 
+                fill={radarColors[index % radarColors.length]} 
+                fillOpacity={0.6} 
+              />
+            ))}
             <Legend />
             <Tooltip />
           </RadarChart>
@@ -708,18 +670,31 @@ function DashboardView({ properties }: { properties: ProcessedProperty[] }) {
   );
 }
 
-// --- 子組件：物件列表 (V5.0 已升級) ---
-function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeCommute, settings, isLoading }: {
+// V6.0: 狀態標籤對應
+const statusMap: Record<PropertyStatus, string> = {
+  pending: '待看屋',
+  viewing: '已看屋',
+  negotiating: '斡旋中',
+  rejected: '已放棄',
+  purchased: '已成交',
+};
+
+// --- 子組件：物件列表 (V6.0 已升級) ---
+function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeCommute, isLoading, compareList, setCompareList, onOpenCompare }: {
   properties: ProcessedProperty[],
   onAdd: () => void,
   onEdit: (p: Property) => void,
   onDelete: (id: string) => void,
   onAnalyzeCommute: (p: Property) => void,
-  settings: Settings,
-  isLoading: boolean
+  settings: Settings, // V6.0: 移除，不再需要
+  isLoading: boolean,
+  compareList: Set<string>,
+  setCompareList: React.Dispatch<React.SetStateAction<Set<string>>>,
+  onOpenCompare: () => void
 }) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [sortBy, setSortBy] = useState("totalScore"); // 'totalScore', 'price', 'age'
+  const [sortBy, setSortBy] = useState("totalScore");
+  const [compareMode, setCompareMode] = useState(false); // V6.0
 
   const filteredProperties = useMemo(() => {
     return properties
@@ -728,18 +703,54 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
         switch (sortBy) {
           case 'price': return a.price - b.price;
           case 'age': return a.ageYears - b.ageYears;
+          case 'visitDate': return (b.visitDate || '').localeCompare(a.visitDate || '');
           case 'totalScore':
           default:
             return b.totalScore - a.totalScore;
         }
       });
   }, [properties, searchTerm, sortBy]);
+  
+  // V6.0: 處理比較模式
+  const handleToggleCompare = (id: string) => {
+    setCompareList(prev => {
+      const newList = new Set(prev);
+      if (newList.has(id)) {
+        newList.delete(id);
+      } else {
+        if (newList.size >= 4) {
+          alert("最多只能比較 4 個物件。");
+        } else {
+          newList.add(id);
+        }
+      }
+      return newList;
+    });
+  };
 
   return (
     <div>
       <div className="list-header">
         <h2>物件列表 ({filteredProperties.length})</h2>
-        <button className="btn-primary" onClick={onAdd}>＋ 新增物件</button>
+        <div>
+          {/* V6.0: 比較模式按鈕 */}
+          {compareMode && (
+            <button 
+              className="btn-success" 
+              onClick={onOpenCompare}
+              disabled={compareList.size < 2}
+            >
+              比較 {compareList.size} 個物件
+            </button>
+          )}
+          <button 
+            className="btn-secondary"
+            onClick={() => setCompareMode(!compareMode)}
+          >
+            {compareMode ? '取消比較' : '開啟比較模式'}
+          </button>
+          <button className="btn-primary" onClick={onAdd}>＋ 新增物件</button>
+        </div>
       </div>
       <div className="list-controls">
         <input
@@ -752,25 +763,44 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
           <option value="totalScore">依推薦分排序 (高到低)</option>
           <option value="price">依總價排序 (低到高)</option>
           <option value="age">依屋齡排序 (低到高)</option>
+          <option value="visitDate">依賞屋日期排序 (新到舊)</option>
         </select>
       </div>
       <div className="property-list-grid">
         {filteredProperties.map(p => (
-          <div key={p.id} className="property-card">
-            {/* V3.0: 顯示照片 */}
+          <div 
+            key={p.id} 
+            className={`property-card ${compareMode && compareList.has(p.id) ? 'compare-selected' : ''}`}
+            onClick={compareMode ? () => handleToggleCompare(p.id) : undefined}
+          >
+            {/* V6.0: 比較模式勾選框 */}
+            {compareMode && (
+              <input 
+                type="checkbox"
+                className="compare-checkbox"
+                checked={compareList.has(p.id)}
+                onChange={() => handleToggleCompare(p.id)}
+                onClick={e => e.stopPropagation()} // 避免觸發卡片點擊
+              />
+            )}
+            
             <img 
               src={p.photoUrls[0] || 'https://via.placeholder.com/400x300.png?text=No+Image'} // 預設圖
               alt={p.title} 
               className="card-image"
-              onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/400x300.png?text=Image+Error')} // 如果照片URL失效
+              onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/400x300.png?text=Image+Error')}
             />
             <div className="card-header" style={{ marginTop: '0.5rem' }}>
               <h3>{p.title}</h3>
               <div className="card-score" title="綜合推薦分">{p.totalScore}</div>
             </div>
             <div className="card-body">
+              {/* V6.0: 狀態標籤 */}
+              <p>
+                <span className={`status-tag status-${p.status}`}>{statusMap[p.status]}</span>
+                {p.visitDate && <span>({p.visitDate})</span>}
+              </p>
               <p>總價: <strong>${p.price.toLocaleString()}</strong></p>
-              {/* V5.0: 顯示單價 */}
               <p>單價: <strong>{p.pricePerPing.toLocaleString()} 萬/坪</strong></p>
               <p>總月付: <strong>${p.monthlyTotalCost.toLocaleString()}</strong></p>
               <p>通勤: <strong>{p.commuteMinutes} 分鐘</strong> | 坪數: <strong>{p.areaPing} 坪</strong></p>
@@ -778,18 +808,21 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
                 {p.tags.map(tag => <span key={tag}>{tag}</span>)}
               </div>
             </div>
-            <div className="card-actions">
-              <button
-                className="btn-success"
-                title={`分析到 ${settings.destinations[0]?.name || '預設目的地'}`}
-                onClick={() => onAnalyzeCommute(p)}
-                disabled={isLoading}
-              >
-                {isLoading ? '分析中...' : '分析通勤'}
-              </button>
-              <button className="btn-secondary" onClick={() => onEdit(p)} disabled={isLoading}>編輯</button>
-              <button className="btn-danger" onClick={() => onDelete(p.id)} disabled={isLoading}>刪除</button>
-            </div>
+            {/* V6.0: 比較模式下隱藏按鈕 */}
+            {!compareMode && (
+              <div className="card-actions">
+                <button
+                  className="btn-success"
+                  title={`分析到 ${settings.destinations[0]?.name || '預設目的地'}`}
+                  onClick={() => onAnalyzeCommute(p)}
+                  disabled={isLoading}
+                >
+                  {isLoading ? '分析中...' : '分析通勤'}
+                </button>
+                <button className="btn-secondary" onClick={() => onEdit(p)} disabled={isLoading}>編輯</button>
+                <button className="btn-danger" onClick={() => onDelete(p.id)} disabled={isLoading}>刪除</button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -809,18 +842,11 @@ function MapView({ properties }: { properties: ProcessedProperty[] }) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         {properties.map(p => (
-          <Marker key={p.id} position={[p.lat, p.lon]} icon={redIcon}> {/* V3.0: 使用紅色圖釘 */}
+          <Marker key={p.id} position={[p.lat, p.lon]} icon={redIcon}>
             <Popup>
-              {/* (V2.0 錯誤修正) */}
-              <div>
-                <strong>{p.title}</strong>
-              </div>
-              <div>
-                總價: ${p.price.toLocaleString()}
-              </div>
-              <div>
-                分數: {p.totalScore}
-              </div>
+              <div><strong>{p.title}</strong></div>
+              <div>總價: ${p.price.toLocaleString()}</div>
+              <div>分數: {p.totalScore}</div>
             </Popup>
           </Marker>
         ))}
@@ -829,7 +855,7 @@ function MapView({ properties }: { properties: ProcessedProperty[] }) {
   );
 }
 
-// --- 子組件：分析與設定 (V4.0) ---
+// --- 子組件：分析與設定 (V6.0 已升級) ---
 function SettingsView({ settings, onSave, properties, onImport }: {
   settings: Settings,
   onSave: (settings: Settings) => void,
@@ -837,9 +863,16 @@ function SettingsView({ settings, onSave, properties, onImport }: {
   onImport: (properties: Property[]) => void
 }) {
   const [localSettings, setLocalSettings] = useState(settings);
-  // V4.0: 用於新增目的地的 state
   const [newDestName, setNewDestName] = useState("");
   const [newDestAddress, setNewDestAddress] = useState("");
+
+  // V6.0: 即時儲存權重 (Debounced)
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      onSave(localSettings);
+    }, 500); // 500ms 延遲
+    return () => clearTimeout(handler);
+  }, [localSettings.weights, localSettings.destinations, localSettings.googleMapsApiKey, onSave]);
 
   const handleWeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -859,7 +892,6 @@ function SettingsView({ settings, onSave, properties, onImport }: {
     }));
   };
   
-  // V4.0: 新增目的地
   const handleAddDestination = () => {
     if (!newDestName || !newDestAddress) {
       alert("請輸入名稱和地址");
@@ -878,7 +910,6 @@ function SettingsView({ settings, onSave, properties, onImport }: {
     setNewDestAddress("");
   };
   
-  // V4.0: 刪除目的地
   const handleDeleteDestination = (id: string) => {
     setLocalSettings(prev => ({
       ...prev,
@@ -886,7 +917,6 @@ function SettingsView({ settings, onSave, properties, onImport }: {
     }));
   };
   
-  // V3.0: 匯出 JSON
   const handleExport = () => {
     const dataStr = JSON.stringify({ properties, settings }, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
@@ -897,7 +927,6 @@ function SettingsView({ settings, onSave, properties, onImport }: {
     linkElement.click();
   };
   
-  // V3.0: 匯入 JSON
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -921,14 +950,13 @@ function SettingsView({ settings, onSave, properties, onImport }: {
       }
     };
     reader.readAsText(file);
-    // 重設 input，否則無法上傳同名檔案
     e.target.value = '';
   };
 
   return (
     <div>
       <h2>分析與設定</h2>
-      <p>調整您的偏好權重，推薦分數將會即時更新。</p>
+      <p>調整您的偏好權重，推薦分數將會**即時自動更新**。</p>
       
       <div className="settings-grid">
         <div className="form-section">
@@ -955,11 +983,10 @@ function SettingsView({ settings, onSave, properties, onImport }: {
           </div>
         </div>
 
-        {/* V4.0: 可變動的目的地列表 */}
         <div className="form-section">
           <h3>通勤分析設定</h3>
           <div className="form-group">
-            <label>Google Maps API 金鑰</label>
+            <label>Google Maps API 金鑰 (本地開發用)</label>
             <input
               type="password"
               name="googleMapsApiKey"
@@ -1009,24 +1036,22 @@ function SettingsView({ settings, onSave, properties, onImport }: {
           </div>
         </div>
       </div>
-      <button className="btn-primary" style={{ marginTop: '1rem' }} onClick={() => onSave(localSettings)}>
-        儲存設定
-      </button>
+      {/* V6.0: 移除儲存按鈕，改為自動儲存 */}
     </div>
   );
 }
 
-// --- 子組件：物件編輯/新增 Modal (V5.0 已升級) ---
+// --- 子組件：物件編輯/新增 Modal (V6.0 已升級) ---
 function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
   property: Property,
   onClose: () => void,
   onSave: (p: Property) => void,
-  apiKey: string,
-  onGeocode: (loading: boolean) => void
+  apiKey: string, // V6.0: 移除, 
+  onGeocode: (loading: boolean) => void // V6.0: 移除, 
 }) {
   const [form, setForm] = useState(property);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     setForm(prev => ({
       ...prev,
@@ -1050,37 +1075,16 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
     setForm(prev => ({ ...prev, [field]: list }));
   };
   
-  // V5.0: 升級 API 功能：真實自動定位
+  // V6.0: API 功能改為提示模式
   const handleGeocode = async () => {
-    if (!apiKey) {
-      alert("請先在『分析與設定』頁面貼上您的 Google Maps API 金鑰！");
-      return;
-    }
-    if (!form.address) {
-      alert("請先輸入地址！");
-      return;
-    }
-    
-    // V5.0: 使用 vite.config.ts 設定的代理路徑
-    const url = `/api/geocode?address=${encodeURIComponent(form.address)}&key=${apiKey}`;
+    alert(`[功能限制說明]\n\n此功能 (自動定位) 需要串接 Google Maps API。\n\n由於 GitHub Pages 靜態網站的 CORS 安全限制，此功能無法在線上版運作。\n\n您可以在本機下載專案，並在 vite.config.ts 中設定 'server.proxy' 來啟用此功能進行本地測試。`);
+    // 原始碼保留，但註解掉
+    /*
+    if (!apiKey) { ... }
+    const url = `/api/geocode?...`;
     onGeocode(true);
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
-      
-      if (data.status !== 'OK' || data.results.length === 0) {
-        throw new Error(data.error_message || "找不到地址");
-      }
-      
-      const { lat, lng } = data.results[0].geometry.location;
-      setForm(prev => ({ ...prev, lat: lat, lon: lng }));
-      alert("[真實API] 定位成功！");
-      
-    } catch (error) {
-       console.error("定位失敗:", error);
-       alert("定位失敗！請檢查地址或 API 金鑰設定。");
-    }
-    onGeocode(false);
+    try { ... }
+    */
   };
   
   return (
@@ -1103,9 +1107,28 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
                 <label>地址</label>
                 <input type="text" name="address" value={form.address} onChange={handleChange} />
                 <button type="button" className="btn-secondary" onClick={handleGeocode} style={{ marginTop: '0.5rem' }}>
-                  自動定位
+                  自動定位 (限本機)
                 </button>
               </div>
+              {/* V6.0: 新增狀態與日期 */}
+               <div className="form-group">
+                <label>狀態</label>
+                <select name="status" value={form.status} onChange={handleChange}>
+                  <option value="pending">待看屋</option>
+                  <option value="viewing">已看屋</option>
+                  <option value="negotiating">斡旋中</option>
+                  <option value="rejected">已放棄</option>
+                  <option value="purchased">已成交</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>賞屋日期</label>
+                <input type="date" name="visitDate" value={form.visitDate} onChange={handleChange} />
+              </div>
+            </div>
+
+            <div className="form-section">
+              <h3>核心數據</h3>
               <div className="form-group">
                 <label>格局</label>
                 <input type="text" name="layout" value={form.layout} onChange={handleChange} />
@@ -1118,7 +1141,14 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
                 <label>屋齡 (年)</label>
                 <input type="number" name="ageYears" value={form.ageYears} onChange={handleChange} />
               </div>
-              
+              <div className="form-group">
+                <label>緯度 (Lat)</label>
+                <input type="number" step="0.0001" name="lat" value={form.lat} onChange={handleChange} />
+              </div>
+              <div className="form-group">
+                <label>經度 (Lon)</label>
+                <input type="number" step="0.0001" name="lon" value={form.lon} onChange={handleChange} />
+              </div>
             </div>
 
             <div className="form-section">
@@ -1156,9 +1186,10 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
                 <input type="number" name="commuteCostMonthly" value={form.commuteCostMonthly} onChange={handleChange} />
               </div>
             </div>
-
-            <div className="form-section">
+            
+            <div className="form-section full-width">
               <h3>一次性成本</h3>
+              <div className="form-grid">
                <div className="form-group">
                 <label>仲介費 (元)</label>
                 <input type="number" name="brokerFee" value={form.oneTimeCosts.brokerFee} onChange={handleCostChange} />
@@ -1176,17 +1207,10 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
                 <input type="number" name="renovation" value={form.oneTimeCosts.renovation} onChange={handleCostChange} />
               </div>
             </div>
+          </div>
             
             <div className="form-section full-width">
               <h3>雜項</h3>
-              <div className="form-group">
-                <label>緯度 (Lat)</label>
-                <input type="number" step="0.0001" name="lat" value={form.lat} onChange={handleChange} />
-              </div>
-              <div className="form-group">
-                <label>經度 (Lon)</label>
-                <input type="number" step="0.0001" name="lon" value={form.lon} onChange={handleChange} />
-              </div>
               <div className="form-group">
                 <label>照片連結 (用逗號分隔)</label>
                 <input type="text" name="photoUrls" value={form.photoUrls.join(', ')} onChange={(e) => handleListChange(e, 'photoUrls')} />
@@ -1212,9 +1236,202 @@ function PropertyFormModal({ property, onClose, onSave, apiKey, onGeocode }: {
   );
 }
 
+// --- V6.0: 新增 "Tools & Info" 頁面組件 ---
+function ToolsInfoView() {
+  const [calcPrice, setCalcPrice] = useState(10000000);
+  const [calcYears, setCalcYears] = useState(30);
+  const [calcRate, setCalcRate] = useState(2.2);
+  const [calcDownPayment, setCalcDownPayment] = useState(2000000);
+  const [calcBudget, setCalcBudget] = useState(30000);
+
+  const monthlyPayment = useMemo(() => {
+    return calculateMonthlyPayment(calcPrice - calcDownPayment, calcYears, calcRate);
+  }, [calcPrice, calcDownPayment, calcYears, calcRate]);
+
+  const affordableLoan = useMemo(() => {
+    const monthlyRate = calcRate / 100 / 12;
+    const numberOfPayments = calcYears * 12;
+    if (monthlyRate <= 0) return 0;
+    const loan = calcBudget * (Math.pow(1 + monthlyRate, numberOfPayments) - 1) / (monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments));
+    return Math.round(loan);
+  }, [calcBudget, calcYears, calcRate]);
+  
+  const oneTimeCosts = useMemo(() => {
+    return {
+      broker: calcPrice * 0.02, // 仲介費 2%
+      deed: calcPrice * 0.001, // 契稅 (估)
+      admin: 20000, // 代書費 (估)
+      total: (calcPrice * 0.02) + (calcPrice * 0.001) + 20000
+    }
+  }, [calcPrice]);
+
+  return (
+    <div className="tools-page">
+      <h2>工具 & 資訊</h2>
+      
+      <div className="tools-grid">
+        <div className="tool-card">
+          <h3>(1) 房貸月付金試算</h3>
+          <div className="form-group">
+            <label>房屋總價</label>
+            <input type="number" value={calcPrice} onChange={e => setCalcPrice(Number(e.target.value))} />
+          </div>
+          <div className="form-group">
+            <label>頭期款</label>
+            <input type="number" value={calcDownPayment} onChange={e => setCalcDownPayment(Number(e.target.value))} />
+          </div>
+           <div className="form-group">
+            <label>貸款年數 (年)</label>
+            <input type="number" value={calcYears} onChange={e => setCalcYears(Number(e.target.value))} />
+          </div>
+          <div className="form-group">
+            <label>貸款利率 (%)</label>
+            <input type="number" step="0.1" value={calcRate} onChange={e => setCalcRate(Number(e.target.value))} />
+          </div>
+          <div className="calculator-result">
+            預估月付金: ${monthlyPayment.toLocaleString()}
+          </div>
+        </div>
+        
+        <div className="tool-card">
+          <h3>(2) 可負擔房價回推</h3>
+           <div className="form-group">
+            <label>我的每月預算</label>
+            <input type="number" value={calcBudget} onChange={e => setCalcBudget(Number(e.target.value))} />
+          </div>
+          <div className="form-group">
+            <label>貸款年數 (年)</label>
+            <input type="number" value={calcYears} onChange={e => setCalcYears(Number(e.target.value))} />
+          </div>
+          <div className="form-group">
+            <label>貸款利率 (%)</label>
+            <input type="number" step="0.1" value={calcRate} onChange={e => setCalcRate(Number(e.target.value))} />
+          </div>
+           <div className="calculator-result">
+            可負擔總貸款: ${affordableLoan.toLocaleString()}
+          </div>
+        </div>
+      </div>
+      
+      <div className="tool-card" style={{ marginTop: '1.5rem' }}>
+        <h3>(3) 一次性成本估算</h3>
+         <div className="form-group">
+            <label>房屋總價</label>
+            <input type="number" value={calcPrice} onChange={e => setCalcPrice(Number(e.target.value))} />
+          </div>
+          <p>仲介費 (估 2%): ${oneTimeCosts.broker.toLocaleString()}</p>
+          <p>契稅 (估 0.1%): ${oneTimeCosts.deed.toLocaleString()}</p>
+          <p>代書/規費 (估): ${oneTimeCosts.admin.toLocaleString()}</p>
+          <div className="calculator-result">
+            預估額外成本: ${oneTimeCosts.total.toLocaleString()}
+          </div>
+      </div>
+      
+      <div className="tool-card" style={{ marginTop: '1.5rem' }}>
+        <h3>(4) 購屋檢查清單</h3>
+        <h4>看屋日</h4>
+        <ul>
+          <li>檢查漏水跡象（天花板、牆角、窗框）</li>
+          <li>檢查牆壁是否有重大裂縫</li>
+          <li>測試所有電源插座和電燈開關</li>
+          <li>打開水龍頭，檢查水壓和排水</li>
+          <li>確認房屋座向，評估採光和西曬</li>
+          <li>感受周邊環境噪音（白天/晚上）</li>
+          <li>確認手機訊號和網路覆蓋</li>
+        </ul>
+        <h4>簽約日</h4>
+        <ul>
+          <li>確認合約書上標的物資訊（地址、坪數）是否正確</li>
+          <li>確認買賣雙方身分證件</li>
+          <li>確認價金支付方式和時程</li>
+          <li>確認交屋日期和附贈設備清單</li>
+          <li>確認違約條款和相關罰則</li>
+        </ul>
+      </div>
+      
+       <div className="tool-card" style={{ marginTop: '1.5rem' }}>
+        <h3>(5) 常用術語</h3>
+        <h4>權狀 (Quánzhuàng)</h4>
+        <p>房屋的所有權證明文件，包含「建物權狀」和「土地權狀」。</p>
+        <h4>公設比 (Gōngshè bǐ)</h4>
+        <p>公共設施面積佔建物總面積的比例。公設比 = (公共設施面積 / (主建物面積 + 附屬建物面積 + 公共設施面積)) * 100%。</p>
+        <h4>斡旋金 (Wòxuán jīn)</h4>
+        <p>買方表示購買誠意，支付給仲介用以與屋主議價的一筆款項。</p>
+      </div>
+    </div>
+  );
+}
+
+// --- V6.0: 新增 "Compare Modal" 頁面組件 ---
+function CompareModal({ properties, onClose }: {
+  properties: ProcessedProperty[],
+  onClose: () => void
+}) {
+  const fields = [
+    { key: 'status', name: '狀態' },
+    { key: 'price', name: '總價 (元)' },
+    { key: 'pricePerPing', name: '單價 (萬/坪)' },
+    { key: 'totalScore', name: '綜合推薦分' },
+    { key: 'scores.cost', name: '成本分數' },
+    { key: 'scores.commute', name: '通勤分數' },
+    { key: 'scores.size', name: '空間分數' },
+    { key: 'scores.age', name: '屋齡分數' },
+    { key: 'areaPing', name: '權狀 (坪)' },
+    { key: 'ageYears', name: '屋齡 (年)' },
+    { key: 'monthlyTotalCost', name: '總月付 (元)' },
+    { key: 'commuteMinutes', name: '通勤 (分)' },
+    { key: 'layout', name: '格局' },
+    { key: 'visitDate', name: '賞屋日期' },
+    { key: 'notes', name: '筆記' },
+  ];
+  
+  // 輔助函數，用於讀取巢狀 key
+  const getValue = (obj: any, path: string) => {
+    return path.split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : 'N/A'), obj);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content compare-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>物件比較</h2>
+          <button className="btn-danger" onClick={onClose}>X</button>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="compare-table">
+            <thead>
+              <tr>
+                <th>功能</th>
+                {properties.map(p => <th key={p.id}>{p.title}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {fields.map(field => (
+                <tr key={field.key}>
+                  <td>{field.name}</td>
+                  {properties.map(p => {
+                    let value = getValue(p, field.key);
+                    // 格式化
+                    if (typeof value === 'number' && ['price', 'monthlyTotalCost'].includes(field.key)) {
+                      value = `$${value.toLocaleString()}`;
+                    }
+                    if (field.key === 'status') {
+                      value = statusMap[value as PropertyStatus] || 'N/A';
+                    }
+                    return <td key={p.id}>{value}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // --- V4.0: 新增 "About" 頁面組件 ---
-// V5.1: 已修正，不再使用硬編碼字串
 function AboutView() {
   return (
     <div className="about-page">
