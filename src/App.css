@@ -502,8 +502,9 @@ button:disabled {
 
 /* V4.0: 說明頁面樣式 & V6.0 工具頁 */
 .about-page, .tools-page {
-  /* V7.0: 移除背景色，與 main-content 一致 */
-  padding: 0;
+  background: var(--bg-tertiary);
+  padding: 2rem;
+  border-radius: 8px;
   color: var(--text-primary);
   line-height: 1.7;
 }
@@ -544,7 +545,7 @@ button:disabled {
   gap: 1.5rem;
 }
 .tool-card {
-  background: var(--bg-tertiary); /* V7.0: 改回深色 */
+  background: var(--bg-secondary);
   padding: 1.5rem;
   border-radius: 8px;
 }
