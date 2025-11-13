@@ -32,10 +32,10 @@ L.Icon.Default.mergeOptions({
 });
 // --- 圖示修正結束 ---
 
-// --- 資料結構定義 (V6.0) ---
+// --- 資料結構定義 (V7.0) ---
 
 type PropertyTag = string;
-type PropertyStatus = 'pending' | 'viewing' | 'negotiating' | 'rejected' | 'purchased';
+type PropertyStatus = 'pending' | 'viewing' | 'negotiating' | 'rejected' | 'purchased'; // V6.0 新增
 
 interface OneTimeCosts {
   brokerFee: number;
@@ -82,7 +82,7 @@ interface Weights {
 }
 
 interface Settings {
-  googleMapsApiKey: string; 
+  googleMapsApiKey: string; // V6.0: 僅在本地開發時有用
   destinations: Destination[];
   weights: Weights;
 }
@@ -331,7 +331,7 @@ const normalize = (val: number, min: number, max: number, invert: boolean = fals
 interface NavigationProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  onCloseMenu: () => void; // 用於行動版
+  onCloseMenu: () => void;
 }
 function Navigation({ activeTab, setActiveTab, onCloseMenu }: NavigationProps) {
   const handleNavClick = (tab: string) => {
@@ -387,9 +387,9 @@ function App() {
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [compareList, setCompareList] = useLocalStorage<Set<string>>('pa-compare', new Set()); // V7.0: 記住比較列表
+  const [compareList, setCompareList] = useLocalStorage<string[]>('pa-compare', []); // V7.0: 改回 Array
   const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
-  const [pinnedItems, setPinnedItems] = useLocalStorage<Set<string>>('pa-pinned', new Set()); // V7.0
+  const [pinnedItems, setPinnedItems] = useLocalStorage<string[]>('pa-pinned', []); // V7.0: 改回 Array
 
   // --- 核心邏輯：計算分數 ---
   const processedData = useMemo((): ProcessedProperty[] => {
@@ -475,16 +475,8 @@ function App() {
   const handleDeleteProperty = (id: string) => {
     if (window.confirm("確定要刪除這個物件嗎？")) {
       setProperties(prev => prev.filter(p => p.id !== id));
-      setCompareList(prev => {
-        const newList = new Set(prev);
-        newList.delete(id);
-        return newList;
-      });
-      setPinnedItems(prev => {
-        const newList = new Set(prev);
-        newList.delete(id);
-        return newList;
-      });
+      setCompareList(prev => prev.filter(itemId => itemId !== id));
+      setPinnedItems(prev => prev.filter(itemId => itemId !== id));
     }
   };
 
@@ -500,29 +492,29 @@ function App() {
   // V7.0: 釘選
   const handleTogglePin = (id: string) => {
     setPinnedItems(prev => {
-      const newList = new Set(prev);
-      if (newList.has(id)) {
-        newList.delete(id);
+      if (prev.includes(id)) {
+        return prev.filter(itemId => itemId !== id);
       } else {
-        if (newList.size >= 5) {
+        if (prev.length >= 5) {
           alert("儀表板最多釘選 5 個物件。");
-        } else {
-          newList.add(id);
+          return prev;
         }
+        return [...prev, id];
       }
-      return newList;
     });
   };
   
   // V6.0: 渲染主要頁面
   const renderActiveTab = () => {
     const pinnedProperties = processedData
-      .filter(p => pinnedItems.has(p.id))
+      .filter(p => pinnedItems.includes(p.id))
       .sort((a, b) => b.totalScore - a.totalScore);
+      
+    const compareProperties = processedData.filter(p => compareList.includes(p.id));
 
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView properties={properties} pinnedProperties={pinnedProperties} />;
+        return <DashboardView properties={processedData} pinnedProperties={pinnedProperties} />;
       case 'properties':
         return <PropertiesListView
           properties={processedData}
@@ -540,11 +532,11 @@ function App() {
       case 'map':
         return <MapView properties={processedData} />;
       case 'tools':
-        return <ToolsInfoView properties={properties} settings={settings} />;
+        return <ToolsInfoView properties={processedData} settings={settings} />;
       case 'settings':
         return <SettingsView 
                   settings={settings} 
-                  onSave={setSettings} // V7.0: 即時更新
+                  onSave={setSettings} 
                   properties={properties}
                   onImport={setProperties}
                 />;
@@ -587,7 +579,7 @@ function App() {
       )}
       {isCompareModalOpen && (
         <CompareModal
-          properties={processedData.filter(p => compareList.has(p.id))}
+          properties={processedData.filter(p => compareList.includes(p.id))}
           onClose={() => setIsCompareModalOpen(false)}
         />
       )}
@@ -600,7 +592,6 @@ function DashboardView({ properties, pinnedProperties }: {
   properties: ProcessedProperty[],
   pinnedProperties: ProcessedProperty[]
 }) {
-  // V7.0: 儀表板統計
   const stats = useMemo(() => {
     if (properties.length === 0) {
       return { count: 0, avgPrice: 0, maxScore: 0, avgPricePerPing: 0 };
@@ -616,7 +607,6 @@ function DashboardView({ properties, pinnedProperties }: {
     };
   }, [properties]);
 
-  // V6.0: 修正雷達圖資料結構
   const radarData = useMemo(() => {
     const categories = ['成本', '通勤', '空間', '屋齡'];
     return categories.map(category => {
@@ -635,7 +625,6 @@ function DashboardView({ properties, pinnedProperties }: {
     <div>
       <h2>儀表板</h2>
 
-      {/* V7.0: 統計數據 */}
       <div className="stats-grid">
         <div className="stat-card">
           <h4>總物件數</h4>
@@ -693,7 +682,7 @@ const statusMap: Record<PropertyStatus, string> = {
   purchased: '已成交',
 };
 
-// --- 子組件：物件列表 (V7.0 已升級) ---
+// --- 子組件：物件列表 (V7.0 已修正) ---
 function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeCommute, isLoading, compareList, setCompareList, onOpenCompare, pinnedItems, onTogglePin }: {
   properties: ProcessedProperty[],
   onAdd: () => void,
@@ -701,10 +690,10 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
   onDelete: (id: string) => void,
   onAnalyzeCommute: (p: Property) => void,
   isLoading: boolean,
-  compareList: Set<string>,
-  setCompareList: React.Dispatch<React.SetStateAction<Set<string>>>,
+  compareList: string[], // V7.0
+  setCompareList: React.Dispatch<React.SetStateAction<string[]>>,
   onOpenCompare: () => void,
-  pinnedItems: Set<string>,
+  pinnedItems: string[], // V7.0
   onTogglePin: (id: string) => void
 }) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -715,11 +704,11 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
   const filteredProperties = useMemo(() => {
     return properties
       .filter(p => p.title.toLowerCase().includes(searchTerm.toLowerCase()))
-      .filter(p => filterStatus === 'all' || p.status === filterStatus) // V7.0
+      .filter(p => filterStatus === 'all' || p.status === filterStatus)
       .sort((a, b) => {
         switch (sortBy) {
           case 'price': return a.price - b.price;
-          case 'pricePerPing': return a.pricePerPing - b.pricePerPing; // V7.0
+          case 'pricePerPing': return a.pricePerPing - b.pricePerPing;
           case 'age': return a.ageYears - b.ageYears;
           case 'visitDate': return (b.visitDate || '').localeCompare(a.visitDate || '');
           case 'totalScore':
@@ -731,17 +720,15 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
   
   const handleToggleCompare = (id: string) => {
     setCompareList(prev => {
-      const newList = new Set(prev);
-      if (newList.has(id)) {
-        newList.delete(id);
+      if (prev.includes(id)) {
+        return prev.filter(itemId => itemId !== id);
       } else {
-        if (newList.size >= 4) {
+        if (prev.length >= 4) {
           alert("最多只能比較 4 個物件。");
-        } else {
-          newList.add(id);
+          return prev;
         }
+        return [...prev, id];
       }
-      return newList;
     });
   };
 
@@ -754,9 +741,9 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
             <button 
               className="btn-success" 
               onClick={onOpenCompare}
-              disabled={compareList.size < 2}
+              disabled={compareList.length < 2}
             >
-              比較 {compareList.size} 個物件
+              比較 {compareList.length} 個物件
             </button>
           )}
           <button 
@@ -775,7 +762,6 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
-        {/* V7.0: 新增篩選/排序 */}
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)}>
           <option value="all">篩選狀態 (全部)</option>
           {Object.entries(statusMap).map(([key, value]) => (
@@ -794,23 +780,22 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
         {filteredProperties.map(p => (
           <div 
             key={p.id} 
-            className={`property-card ${compareMode && compareList.has(p.id) ? 'compare-selected' : ''}`}
+            className={`property-card ${compareMode && compareList.includes(p.id) ? 'compare-selected' : ''}`}
             onClick={compareMode ? () => handleToggleCompare(p.id) : undefined}
           >
-            {/* V7.0: 釘選按鈕 */}
             <button
-              className={`pin-button ${pinnedItems.has(p.id) ? 'pinned' : ''}`}
-              title={pinnedItems.has(p.id) ? '取消釘選' : '釘選到儀表板'}
+              className={`pin-button ${pinnedItems.includes(p.id) ? 'pinned' : ''}`}
+              title={pinnedItems.includes(p.id) ? '取消釘選' : '釘選到儀表板'}
               onClick={(e) => { e.stopPropagation(); onTogglePin(p.id); }}
             >
-              {pinnedItems.has(p.id) ? '★' : '☆'}
+              {pinnedItems.includes(p.id) ? '★' : '☆'}
             </button>
             
             {compareMode && (
               <input 
                 type="checkbox"
                 className="compare-checkbox"
-                checked={compareList.has(p.id)}
+                checked={compareList.includes(p.id)}
                 readOnly
               />
             )}
@@ -843,7 +828,7 @@ function PropertiesListView({ properties, onAdd, onEdit, onDelete, onAnalyzeComm
                 <button
                   className="btn-secondary"
                   title="分析通勤 (限本機)"
-                  onClick={() => onAnalyzeCommute(p)}
+                  onClick={() => onAnalyzeCommute(p)} // V7.0 Bug 修正: 這裡必須傳 p
                   disabled={isLoading}
                 >
                   分析通勤
@@ -897,14 +882,12 @@ function SettingsView({ settings, onSave, properties, onImport }: {
 
   // V7.0: 即時儲存 (Debounced)
   useEffect(() => {
-    // 當 localSettings 改變時，觸發 onSave (父層的 setSettings)
     const handler = setTimeout(() => {
       onSave(localSettings);
     }, 300); // 300ms 延遲
     return () => clearTimeout(handler);
   }, [localSettings, onSave]);
   
-  // V7.0: 當父層 settings 改變時 (例如匯入)，同步 localSettings
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
@@ -1108,7 +1091,6 @@ function PropertyFormModal({ property, onClose, onSave }: {
     setForm(prev => ({ ...prev, [field]: list }));
   };
   
-  // V6.0: API 功能改為提示模式
   const handleGeocode = async () => {
     alert(`[功能限制說明]\n\n此功能 (自動定位) 需要串接 Google Maps API。\n\n由於 GitHub Pages 靜態網站的 CORS 安全限制，此功能無法在線上版運作。\n\n您可以在本機下載專案，並在 vite.config.ts 中設定 'server.proxy' 來啟用此功能進行本地測試。`);
   };
@@ -1348,11 +1330,28 @@ function ToolsInfoView({ properties, settings }: {
     const monthlyPayment = calculateMonthlyPayment(loanAmount, calcYears, calcRate);
     const totalPayment = monthlyPayment * calcYears * 12;
     const totalInterest = totalPayment - loanAmount;
-    return [
-      { name: '總本金', value: loanAmount },
-      { name: '總利息', value: totalInterest },
-    ];
+    
+    if (loanAmount <= 0) {
+      return { payment: 0, pie: [{ name: '本金', value: 0 }, { name: '利息', value: 0 }]};
+    }
+    
+    return {
+      payment: monthlyPayment,
+      pie: [
+        { name: '總本金', value: loanAmount },
+        { name: '總利息', value: totalInterest },
+      ]
+    };
   }, [calcPrice, calcDownPayment, calcYears, calcRate]);
+
+  // 可負擔回推
+  const affordableLoan = useMemo(() => {
+    const monthlyRate = calcRate / 100 / 12;
+    const numberOfPayments = calcYears * 12;
+    if (monthlyRate <= 0) return 0;
+    const loan = calcBudget * (Math.pow(1 + monthlyRate, numberOfPayments) - 1) / (monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments));
+    return Math.round(loan);
+  }, [calcBudget, calcYears, calcRate]);
 
   // What-if
   const scenarioResults = useMemo(() => {
@@ -1400,13 +1399,13 @@ function ToolsInfoView({ properties, settings }: {
             <input type="number" step="0.1" value={calcRate} onChange={e => setCalcRate(Number(e.target.value))} />
           </div>
           <div className="calculator-result">
-            預估月付金: ${amortizationData[0].value > 0 ? calculateMonthlyPayment(amortizationData[0].value, calcYears, calcRate).toLocaleString() : 0}
+            預估月付金: ${amortizationData.payment.toLocaleString()}
           </div>
           <div className="amortization-pie-chart">
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={amortizationData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} fill="#8884d8" label>
-                   {amortizationData.map((entry, index) => (
+                <Pie data={amortizationData.pie} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} fill="#8884d8" label>
+                   {amortizationData.pie.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
@@ -1432,7 +1431,7 @@ function ToolsInfoView({ properties, settings }: {
             <input type="number" step="0.1" value={calcRate} onChange={e => setCalcRate(Number(e.target.value))} />
           </div>
            <div className="calculator-result">
-            可負擔總貸款: ${calculateMonthlyPayment(1, calcYears, calcRate) > 0 ? (Math.round(calcBudget / calculateMonthlyPayment(1, calcYears, calcRate))).toLocaleString() : 0}
+            可負擔總貸款: ${affordableLoan.toLocaleString()}
           </div>
         </div>
       </div>
@@ -1450,28 +1449,29 @@ function ToolsInfoView({ properties, settings }: {
             <input type="number" step="100000" value={scenarioDown} onChange={e => setScenarioDown(Number(e.target.value))} />
           </div>
         </div>
-        <table className="scenario-table">
-          <thead>
-            <tr>
-              <th>物件</th>
-              <th>原始月付</th>
-              <th>情境1: 新月付 (利率 +{scenarioRate}%)</th>
-              <th>情境2: 新月付 (頭款 +{scenarioDown.toLocaleString()})</th>
-            </tr>
-          </thead>
-          <tbody>
-            {scenarioResults.map(p => (
-              <tr key={p.id}>
-                <td>{p.title}</td>
-                <td className="original">${p.originalPayment.toLocaleString()}</td>
-                <td className="new">${p.newPayment_rate.toLocaleString()}</td>
-                <td className="new">${p.newPayment_down.toLocaleString()}</td>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="scenario-table">
+            <thead>
+              <tr>
+                <th>物件</th>
+                <th>原始月付</th>
+                <th>情境1: 新月付 (利率 +{scenarioRate}%)</th>
+                <th>情境2: 新月付 (頭款 +{scenarioDown.toLocaleString()})</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {scenarioResults.map(p => (
+                <tr key={p.id}>
+                  <td>{p.title}</td>
+                  <td className="original">${p.originalPayment.toLocaleString()}</td>
+                  <td className="new">${p.newPayment_rate.toLocaleString()}</td>
+                  <td className="new">${p.newPayment_down.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-      
     </div>
   );
 }
